@@ -32,7 +32,6 @@ overide the default behaviour:
 
 * set APKSIGCOPIER_EXCLUDE_ALL_META=1 to exclude all metadata files
 * set APKSIGCOPIER_COPY_EXTRA_BYTES=1 to copy extra bytes after data (e.g. a v2 sig)
-* set APKSIGCOPIER_ALLOW_DUPLICATES=1 to allow duplicate ZIP entries
 
 
 API
@@ -50,7 +49,6 @@ override the default behaviour:
 
 * set exclude_all_meta=True to exclude all metadata files
 * set copy_extra_bytes=True to copy extra bytes after data (e.g. a v2 sig)
-* set allow_duplicates=True to allow duplicate ZIP entries
 """
 
 import glob
@@ -78,7 +76,6 @@ ZipData = namedtuple("ZipData", ("cd_offset", "eocd_offset", "cd_and_eocd"))
 
 exclude_all_meta = False    # exclude all metadata files in copy_apk()
 copy_extra_bytes = False    # copy extra bytes after data in copy_apk()
-allow_duplicates = False    # allow duplicate ZIP entries in copy_apk()
 
 
 class APKSigCopierError(Exception):
@@ -220,13 +217,10 @@ def copy_apk(unsigned_apk, output_apk):
 
     * set exclude_all_meta=True to exclude all metadata files
     * set copy_extra_bytes=True to copy extra bytes after data (e.g. a v2 sig)
-    * set allow_duplicates=True to allow duplicate ZIP entries
     """
+    written = set()
     with zipfile.ZipFile(unsigned_apk, "r") as zf:
         infos = zf.infolist()
-    if not allow_duplicates:
-        if len(infos) != len(set(info.filename for info in infos)):
-            raise ZipError("Duplicate ZIP entries")
     zdata = zip_data(unsigned_apk)
     offsets = {}
     with open(unsigned_apk, "rb") as fhi, open(output_apk, "w+b") as fho:
@@ -255,6 +249,10 @@ def copy_apk(unsigned_apk, output_apk):
                     data_descriptor += fhi.read(4)
                 if not skip:
                     fho.write(data_descriptor)
+            if info.filename in written:
+                raise ZipError("Duplicate ZIP entry: " + info.filename)
+            if not skip:
+                written.add(info.filename)
         extra_bytes = zdata.cd_offset - fhi.tell()
         if copy_extra_bytes:
             _copy_bytes(fhi, fho, extra_bytes)
@@ -528,10 +526,9 @@ def do_copy(signed_apk, unsigned_apk, output_apk, v1_only=NO):
 def main():
     """CLI; requires click."""
 
-    global exclude_all_meta, copy_extra_bytes, allow_duplicates
+    global exclude_all_meta, copy_extra_bytes
     exclude_all_meta = os.environ.get("APKSIGCOPIER_EXCLUDE_ALL_META") in ("1", "yes", "true")
     copy_extra_bytes = os.environ.get("APKSIGCOPIER_COPY_EXTRA_BYTES") in ("1", "yes", "true")
-    allow_duplicates = os.environ.get("APKSIGCOPIER_ALLOW_DUPLICATES") in ("1", "yes", "true")
 
     import click
 
